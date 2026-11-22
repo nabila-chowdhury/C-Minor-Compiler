@@ -77,3 +77,9 @@ class ExpressionStatement:
 @dataclass
 class EmptyStatement:
     pass
+
+
+@dataclass
+class FunctionCall:
+    name: str
+    arguments: list

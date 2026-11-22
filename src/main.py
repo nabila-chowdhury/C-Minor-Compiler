@@ -11,19 +11,24 @@ from src.parser import parse
 from src.semantic import analyze
 from src.ir import generate_ir
 from src.codegen import generate_code
+from src.diagnostics import DiagnosticEngine
 
 
 def compile_file(source_file):
+    diagnostics = DiagnosticEngine()
     source_path = Path(source_file)
 
-    if not source_path.exists():
-        print(f"Error: File not found: {source_file}")
-        return False
+    print("\n========== C MINOR COMPILER ==========")
 
     try:
-        source_code = source_path.read_text()
+        if not source_path.exists():
+            diagnostics.report_error(
+                f"File not found: {source_file}"
+            )
+            diagnostics.show_summary()
+            return False
 
-        print("\n========== C MINOR COMPILER ==========")
+        source_code = source_path.read_text()
 
         print("\n[1] Lexical Analysis")
         tokens = tokenize(source_code)
@@ -51,7 +56,6 @@ def compile_file(source_file):
 
         llvm_file = build_folder / "output.ll"
         llvm_file.write_text(llvm_code)
-
         print("LLVM code generated!")
 
         print("\n[6] LLVM Assembly")
@@ -61,7 +65,6 @@ def compile_file(source_file):
             ["llvm-as", str(llvm_file), "-o", str(bitcode_file)],
             check=True
         )
-
         print("LLVM assembly successful!")
 
         print("\n[7] Executable Generation")
@@ -73,15 +76,15 @@ def compile_file(source_file):
         )
 
         print("Executable generated successfully!")
-
         print("\n========== COMPILATION SUCCESSFUL ==========")
         print(f"Executable: {executable}")
 
+        diagnostics.show_summary()
         return True
 
     except Exception as error:
-        print("\n========== COMPILATION FAILED ==========")
-        print(f"Error: {error}")
+        diagnostics.report_error(str(error))
+        diagnostics.show_summary()
         return False
 
 

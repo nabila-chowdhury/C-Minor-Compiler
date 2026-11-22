@@ -12,7 +12,8 @@ from src.ast_nodes import (
     Number,
     Identifier,
     ExpressionStatement,
-    EmptyStatement
+    EmptyStatement,
+    FunctionCall
 )
 
 from src.symbol_table import Symbol, SymbolTable
@@ -27,15 +28,83 @@ class SemanticAnalyzer:
     def __init__(self):
         self.symbol_table = SymbolTable()
         self.current_function_return_type = None
+        self.function_signatures = {}
 
     def analyze(self, program):
 
         self.symbol_table = SymbolTable()
+        self.function_signatures = {}
 
+        # First pass: register global variables and functions
         for declaration in program.declarations:
 
             if isinstance(declaration, VariableDeclaration):
-                self.check_variable_declaration(declaration)
+
+                symbol = Symbol(
+                    declaration.name,
+                    declaration.var_type,
+                    "variable"
+                )
+
+                if declaration.var_type != "int":
+                    raise SemanticError(
+                        f"Invalid variable type: {declaration.var_type}"
+                    )
+
+                if not self.symbol_table.declare(symbol):
+                    raise SemanticError(
+                        f"Duplicate variable declaration: {declaration.name}"
+                    )
+
+            elif isinstance(declaration, Function):
+
+                if declaration.return_type not in ("int", "void"):
+                    raise SemanticError(
+                        f"Invalid function return type: {declaration.return_type}"
+                    )
+
+                if declaration.name in self.function_signatures:
+                    raise SemanticError(
+                        f"Duplicate function declaration: {declaration.name}"
+                    )
+
+                if self.symbol_table.current_scope_contains(declaration.name):
+                    raise SemanticError(
+                        f"Duplicate declaration: {declaration.name}"
+                    )
+
+                parameter_types = [
+                    parameter.var_type
+                    for parameter in declaration.parameters
+                ]
+
+                self.function_signatures[declaration.name] = (
+                    declaration.return_type,
+                    parameter_types
+                )
+
+                symbol = Symbol(
+                    declaration.name,
+                    declaration.return_type,
+                    "function"
+                )
+
+                self.symbol_table.declare(symbol)
+
+        # Second pass: check global initializers and function bodies
+        for declaration in program.declarations:
+
+            if isinstance(declaration, VariableDeclaration):
+
+                if declaration.initializer is not None:
+                    value_type = self.check_expression(
+                        declaration.initializer
+                    )
+
+                    if value_type != declaration.var_type:
+                        raise SemanticError(
+                            f"Type mismatch in variable: {declaration.name}"
+                        )
 
             elif isinstance(declaration, Function):
                 self.check_function(declaration)
@@ -72,22 +141,6 @@ class SemanticAnalyzer:
                 )
 
     def check_function(self, function):
-
-        if function.return_type not in ("int", "void"):
-            raise SemanticError(
-                f"Invalid function return type: {function.return_type}"
-            )
-
-        symbol = Symbol(
-            function.name,
-            function.return_type,
-            "function"
-        )
-
-        if not self.symbol_table.declare(symbol):
-            raise SemanticError(
-                f"Duplicate function declaration: {function.name}"
-            )
 
         self.symbol_table.enter_scope()
 
@@ -189,11 +242,9 @@ class SemanticAnalyzer:
 
     def check_expression(self, expression):
 
-        # Integer number
         if isinstance(expression, Number):
             return "int"
 
-        # Variable checking
         elif isinstance(expression, Identifier):
 
             symbol = self.symbol_table.lookup(expression.name)
@@ -210,12 +261,41 @@ class SemanticAnalyzer:
 
             return symbol.symbol_type
 
-        # Binary expression checking
+        # Function call validation
+        elif isinstance(expression, FunctionCall):
+
+            if expression.name not in self.function_signatures:
+                raise SemanticError(
+                    f"Undeclared function: {expression.name}"
+                )
+
+            return_type, parameter_types = (
+                self.function_signatures[expression.name]
+            )
+
+            if len(expression.arguments) != len(parameter_types):
+                raise SemanticError(
+                    f"Function '{expression.name}' expects "
+                    f"{len(parameter_types)} arguments, "
+                    f"but got {len(expression.arguments)}"
+                )
+
+            for index, argument in enumerate(expression.arguments):
+
+                argument_type = self.check_expression(argument)
+
+                if argument_type != parameter_types[index]:
+                    raise SemanticError(
+                        f"Argument {index + 1} type mismatch "
+                        f"in function '{expression.name}'"
+                    )
+
+            return return_type
+
         elif isinstance(expression, BinaryExpression):
 
             operator = expression.operator
 
-            # Assignment
             if operator == "=":
 
                 if not isinstance(expression.left, Identifier):
@@ -223,13 +303,8 @@ class SemanticAnalyzer:
                         "Invalid assignment target"
                     )
 
-                left_type = self.check_expression(
-                    expression.left
-                )
-
-                right_type = self.check_expression(
-                    expression.right
-                )
+                left_type = self.check_expression(expression.left)
+                right_type = self.check_expression(expression.right)
 
                 if left_type != right_type:
                     raise SemanticError(
@@ -238,7 +313,6 @@ class SemanticAnalyzer:
 
                 return left_type
 
-            # Arithmetic operators
             elif operator in ("+", "-", "*", "/", "%"):
 
                 left_type = self.check_expression(expression.left)
@@ -251,7 +325,6 @@ class SemanticAnalyzer:
 
                 return "int"
 
-            # Comparison operators
             elif operator in ("<", ">", "<=", ">=", "==", "!="):
 
                 left_type = self.check_expression(expression.left)
@@ -264,7 +337,6 @@ class SemanticAnalyzer:
 
                 return "int"
 
-            # Logical operators
             elif operator in ("&&", "||"):
 
                 left_type = self.check_expression(expression.left)
@@ -282,7 +354,6 @@ class SemanticAnalyzer:
                     f"Unsupported binary operator: {operator}"
                 )
 
-        # Unary expression checking
         elif isinstance(expression, UnaryExpression):
 
             operand_type = self.check_expression(

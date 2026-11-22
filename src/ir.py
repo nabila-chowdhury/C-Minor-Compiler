@@ -12,7 +12,8 @@ from src.ast_nodes import (
     Number,
     Identifier,
     ExpressionStatement,
-    EmptyStatement
+    EmptyStatement,
+    FunctionCall
 )
 
 
@@ -35,15 +36,37 @@ class IRGenerator:
         self.instructions.append(instruction)
 
     def generate(self, program):
+        self.instructions = []
+
         for declaration in program.declarations:
 
             if isinstance(declaration, Function):
-                self.emit(f"function {declaration.name}:")
+                parameters = ", ".join(
+                    parameter.name
+                    for parameter in declaration.parameters
+                )
+
+                self.emit(
+                    f"function {declaration.name}({parameters}):"
+                )
+
                 self.generate_statement(declaration.body)
-                self.emit(f"end function {declaration.name}")
+
+                self.emit(
+                    f"end function {declaration.name}"
+                )
 
             elif isinstance(declaration, VariableDeclaration):
-                self.generate_statement(declaration)
+
+                if declaration.initializer is not None:
+                    value = self.generate_expression(
+                        declaration.initializer
+                    )
+                    self.emit(
+                        f"global {declaration.name} = {value}"
+                    )
+                else:
+                    self.emit(f"global {declaration.name}")
 
         return self.instructions
 
@@ -73,7 +96,6 @@ class IRGenerator:
                 self.emit(f"return {value}")
 
         elif isinstance(statement, ExpressionStatement):
-
             self.generate_expression(statement.expression)
 
         elif isinstance(statement, IfStatement):
@@ -85,7 +107,9 @@ class IRGenerator:
             else_label = self.new_label()
             end_label = self.new_label()
 
-            self.emit(f"ifFalse {condition} goto {else_label}")
+            self.emit(
+                f"ifFalse {condition} goto {else_label}"
+            )
 
             self.generate_statement(statement.then_branch)
 
@@ -109,7 +133,9 @@ class IRGenerator:
                 statement.condition
             )
 
-            self.emit(f"ifFalse {condition} goto {end_label}")
+            self.emit(
+                f"ifFalse {condition} goto {end_label}"
+            )
 
             self.generate_statement(statement.body)
 
@@ -126,6 +152,25 @@ class IRGenerator:
 
         if isinstance(expression, Identifier):
             return expression.name
+
+        if isinstance(expression, FunctionCall):
+
+            arguments = []
+
+            for argument in expression.arguments:
+                value = self.generate_expression(argument)
+                arguments.append(value)
+
+            for argument in arguments:
+                self.emit(f"param {argument}")
+
+            temp = self.new_temp()
+
+            self.emit(
+                f"{temp} = call {expression.name}, {len(arguments)}"
+            )
+
+            return temp
 
         if isinstance(expression, UnaryExpression):
 

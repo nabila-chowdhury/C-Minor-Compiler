@@ -12,7 +12,8 @@ from src.ast_nodes import (
     Number,
     Identifier,
     ExpressionStatement,
-    EmptyStatement
+    EmptyStatement,
+    FunctionCall
 )
 
 
@@ -66,7 +67,7 @@ class Parser:
 
     def parse_type(self):
         if self.check("int") or self.check("void"):
-            return self.tokens[self.position].value
+            return self.current().value
 
         raise ParseError("Expected a type")
 
@@ -89,12 +90,7 @@ class Parser:
             self.expect(")")
             body = self.parse_compound_statement()
 
-            return Function(
-                var_type,
-                name,
-                parameters,
-                body
-            )
+            return Function(var_type, name, parameters, body)
 
         initializer = None
 
@@ -103,11 +99,7 @@ class Parser:
 
         self.expect(";")
 
-        return VariableDeclaration(
-            var_type,
-            name,
-            initializer
-        )
+        return VariableDeclaration(var_type, name, initializer)
 
     def parse_parameters(self):
         parameters = []
@@ -126,10 +118,7 @@ class Parser:
             param_name = self.expect_type("IDENTIFIER").value
 
             parameters.append(
-                VariableDeclaration(
-                    param_type,
-                    param_name
-                )
+                VariableDeclaration(param_type, param_name)
             )
 
             if not self.match(","):
@@ -142,20 +131,13 @@ class Parser:
         statements = []
 
         while not self.check("}"):
-
             if self.current() is None:
                 raise ParseError("Missing closing '}'")
 
-            # Local variable declarations
             if self.check("int") or self.check("void"):
-                statements.append(
-                    self.parse_local_declaration()
-                )
-
+                statements.append(self.parse_local_declaration())
             else:
-                statements.append(
-                    self.parse_statement()
-                )
+                statements.append(self.parse_statement())
 
         self.expect("}")
 
@@ -174,11 +156,7 @@ class Parser:
 
         self.expect(";")
 
-        return VariableDeclaration(
-            var_type,
-            name,
-            initializer
-        )
+        return VariableDeclaration(var_type, name, initializer)
 
     def parse_statement(self):
 
@@ -196,11 +174,7 @@ class Parser:
             if self.match("else"):
                 else_branch = self.parse_statement()
 
-            return IfStatement(
-                condition,
-                then_branch,
-                else_branch
-            )
+            return IfStatement(condition, then_branch, else_branch)
 
         if self.match("while"):
             self.expect("(")
@@ -209,10 +183,7 @@ class Parser:
 
             body = self.parse_statement()
 
-            return WhileStatement(
-                condition,
-                body
-            )
+            return WhileStatement(condition, body)
 
         if self.match("return"):
             expression = None
@@ -221,7 +192,6 @@ class Parser:
                 expression = self.parse_expression()
 
             self.expect(";")
-
             return ReturnStatement(expression)
 
         if self.match(";"):
@@ -240,12 +210,7 @@ class Parser:
 
         if self.match("="):
             right = self.parse_assignment()
-
-            return BinaryExpression(
-                left,
-                "=",
-                right
-            )
+            return BinaryExpression(left, "=", right)
 
         return left
 
@@ -254,12 +219,7 @@ class Parser:
 
         while self.match("||"):
             right = self.parse_logical_and()
-
-            left = BinaryExpression(
-                left,
-                "||",
-                right
-            )
+            left = BinaryExpression(left, "||", right)
 
         return left
 
@@ -268,12 +228,7 @@ class Parser:
 
         while self.match("&&"):
             right = self.parse_equality()
-
-            left = BinaryExpression(
-                left,
-                "&&",
-                right
-            )
+            left = BinaryExpression(left, "&&", right)
 
         return left
 
@@ -285,12 +240,7 @@ class Parser:
             self.position += 1
 
             right = self.parse_relational()
-
-            left = BinaryExpression(
-                left,
-                operator,
-                right
-            )
+            left = BinaryExpression(left, operator, right)
 
         return left
 
@@ -307,12 +257,7 @@ class Parser:
             self.position += 1
 
             right = self.parse_additive()
-
-            left = BinaryExpression(
-                left,
-                operator,
-                right
-            )
+            left = BinaryExpression(left, operator, right)
 
         return left
 
@@ -324,12 +269,7 @@ class Parser:
             self.position += 1
 
             right = self.parse_multiplicative()
-
-            left = BinaryExpression(
-                left,
-                operator,
-                right
-            )
+            left = BinaryExpression(left, operator, right)
 
         return left
 
@@ -345,12 +285,7 @@ class Parser:
             self.position += 1
 
             right = self.parse_unary()
-
-            left = BinaryExpression(
-                left,
-                operator,
-                right
-            )
+            left = BinaryExpression(left, operator, right)
 
         return left
 
@@ -364,11 +299,7 @@ class Parser:
             self.position += 1
 
             operand = self.parse_unary()
-
-            return UnaryExpression(
-                operator,
-                operand
-            )
+            return UnaryExpression(operator, operand)
 
         return self.parse_primary()
 
@@ -383,8 +314,25 @@ class Parser:
             return Number(int(token.value))
 
         if token.type == "IDENTIFIER":
+            name = token.value
             self.position += 1
-            return Identifier(token.value)
+
+            # Function call
+            if self.match("("):
+                arguments = []
+
+                if not self.check(")"):
+                    while True:
+                        arguments.append(self.parse_expression())
+
+                        if not self.match(","):
+                            break
+
+                self.expect(")")
+
+                return FunctionCall(name, arguments)
+
+            return Identifier(name)
 
         if self.match("("):
             expression = self.parse_expression()
